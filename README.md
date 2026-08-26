@@ -105,7 +105,7 @@ RzyL/
     │   ├── dawu2/              #   大雾2 题库图片（27 实验）+ keywords.json
     │   └── easter_egg/                #   彩蛋资源目录（图片 + 注册表 + 对话提示词）
     │       ├── keywords.example.json  #     注册表配置模板（真实 keywords.json 本地不同步）
-    │       ├── prompt_chat.example.md #     对话回退提示词模板（真实 prompt_chat.md 本地不同步）
+    │       ├── prompt_chat.example.md #     空占位文件（真实 prompt_chat.md 本地不同步）
     │       ├── factor/                 #     人物类（教师照片 + bxh/cj/pjw 子目录）
     │       ├── LLM/            #     AI 拟人类（GLM/Qwen/Gemini/Grok/Claude/DeepSeek/ChatGPT）
     │       ├── Origin/         #     达菲朋友们类（初始开发者遗留图片）
@@ -151,7 +151,7 @@ RzyL/
 2. **AI 模糊匹配**：精确未命中时，把所有可见个体/复合体的别名交给 `MODEL_THINK` 做模糊匹配，命中则出图（前缀「AI 匹配到」）。
 3. **对话回退**：AI 也未匹配（即输入与任何彩蛋无关）时，把用户原文加上预设系统提示词交给 `MODEL_CHAT` 生成回复，并以**引用**方式回复该用户的发言——此时机器人充当对话机器人。
 
-- 预设提示词从独立文件 `src/asserts/easter_egg/prompt_chat.md`（UTF-8，可任意换行排版；模板见 `prompt_chat.example.md`）加载：缺失或为空时回退内置默认；`MODEL_CHAT` 留空时对话回退不可用（会提示「对话服务未配置」）。
+- 预设提示词从独立文件 `src/asserts/easter_egg/prompt_chat.md`（UTF-8，可任意换行排版；`prompt_chat.example.md` 仅为空占位文件）加载：缺失或为空时回退内置默认；`MODEL_CHAT` 留空时对话回退不可用（会提示「对话服务未配置」）。
 - AI 路径（模糊匹配 + 对话回退）按用户限流，每 60 秒最多 10 次请求。
 
 ### AI 请求实现与性能调优

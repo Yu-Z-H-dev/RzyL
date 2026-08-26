@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+from pathlib import Path
 
 import aiohttp
 import nonebot
@@ -13,13 +14,18 @@ API_KEY = getattr(config, "api_key", "")
 MODEL_THINK = getattr(config, "model_think", "")  # 模糊匹配用
 MODEL_CHAT = getattr(config, "model_chat", "")    # 对话回退用
 
-# 对话模式预设系统提示词：可通过 EASTER_EGG_CHAT_PROMPT 覆盖，留空则使用内置默认值
+# 对话模式内置默认文案：提示词文件缺失或为空时使用。
 DEFAULT_CHAT_PROMPT = (
     "你是一个被群友在「彩蛋」指令后随意召唤的 QQ 群聊机器人。"
     "用户输入的话没有匹配到任何彩蛋，请你像群友一样自然、简短、带点幽默地回应，"
     "不要长篇大论，不要自称助手。"
 )
-CHAT_SYSTEM_PROMPT = getattr(config, "easter_egg_chat_prompt", "") or DEFAULT_CHAT_PROMPT
+
+# 对话模式自定义提示词文件（UTF-8），文件内可任意换行排版；
+# 该文件属本地配置，不在版本库内（见 prompt_chat.example.md 模板与 .gitignore）。
+CHAT_PROMPT_FILE = (
+    Path(__file__).resolve().parent.parent.parent / "asserts" / "easter_egg" / "prompt_chat.md"
+)
 
 # 每个插件的 AI 并发上限：默认 5（可 AI_CONCURRENCY 覆盖），过高会冲击 API 链路、过低会排队拖慢。
 try:
@@ -37,6 +43,25 @@ except (TypeError, ValueError):
 _AI_TIMEOUT = aiohttp.ClientTimeout(total=REQUEST_TIMEOUT, connect=30, sock_read=120)
 
 logger = logging.getLogger(__name__)
+
+
+def _load_chat_prompt() -> str:
+    """加载对话模式系统提示词：优先独立文件，失败或为空回退内置默认文案。"""
+    try:
+        text = CHAT_PROMPT_FILE.read_text(encoding="utf-8").strip()
+    except (OSError, UnicodeError) as e:
+        logger.warning(
+            f"彩蛋对话提示词文件 {CHAT_PROMPT_FILE} 无法读取（{e!r}），回退内置默认文案"
+        )
+        return DEFAULT_CHAT_PROMPT
+    if not text:
+        logger.info(f"彩蛋对话提示词文件 {CHAT_PROMPT_FILE} 为空，使用内置默认文案")
+        return DEFAULT_CHAT_PROMPT
+    return text
+
+
+CHAT_SYSTEM_PROMPT = _load_chat_prompt()
+
 
 # 复用的长连接会话：每个请求不再重复 TCP/TLS 握手，是缓解 AI 超时/变慢的关键之一。
 _session: aiohttp.ClientSession | None = None

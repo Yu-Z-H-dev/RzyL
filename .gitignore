@@ -20,3 +20,4 @@ wheels/
 
 # 彩蛋配置文件（本地配置，不同步）
 src/asserts/easter_egg/keywords.json
+src/asserts/easter_egg/prompt_chat.md

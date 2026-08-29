@@ -14,15 +14,9 @@ API_KEY = getattr(config, "api_key", "")
 MODEL_THINK = getattr(config, "model_think", "")  # 模糊匹配用
 MODEL_CHAT = getattr(config, "model_chat", "")    # 对话回退用
 
-# 对话模式内置默认文案：提示词文件缺失或为空时使用。
-DEFAULT_CHAT_PROMPT = (
-    "你是一个被群友在「彩蛋」指令后随意召唤的 QQ 群聊机器人。"
-    "用户输入的话没有匹配到任何彩蛋，请你像群友一样自然、简短、带点幽默地回应，"
-    "不要长篇大论，不要自称助手。"
-)
-
 # 对话模式自定义提示词文件（UTF-8），文件内可任意换行排版；
 # 该文件属本地配置，不在版本库内（见 prompt_chat.example.md 模板与 .gitignore）。
+# 文件缺失、无法读取或内容为空时「不附加任何提示词」：直接把用户在彩蛋后的原话交给模型。
 CHAT_PROMPT_FILE = (
     Path(__file__).resolve().parent.parent.parent / "asserts" / "easter_egg" / "prompt_chat.md"
 )
@@ -46,17 +40,22 @@ logger = logging.getLogger(__name__)
 
 
 def _load_chat_prompt() -> str:
-    """加载对话模式系统提示词：优先独立文件，失败或为空回退内置默认文案。"""
+    """加载对话模式系统提示词：优先独立文件。
+
+    文件缺失、无法读取或内容为空时返回空串——对话回退将不携带任何系统提示词，
+    等价于把用户在「彩蛋」后的原话直接交给模型。
+    """
     try:
         text = CHAT_PROMPT_FILE.read_text(encoding="utf-8").strip()
-    except (OSError, UnicodeError) as e:
-        logger.warning(
-            f"彩蛋对话提示词文件 {CHAT_PROMPT_FILE} 无法读取（{e!r}），回退内置默认文案"
-        )
-        return DEFAULT_CHAT_PROMPT
+    except OSError as e:
+        logger.warning(f"彩蛋对话提示词文件 {CHAT_PROMPT_FILE} 无法读取（{e!r}），本次运行不附加系统提示词")
+        return ""
+    except UnicodeError as e:
+        logger.warning(f"彩蛋对话提示词文件 {CHAT_PROMPT_FILE} 编码异常（{e!r}），本次运行不附加系统提示词")
+        return ""
     if not text:
-        logger.info(f"彩蛋对话提示词文件 {CHAT_PROMPT_FILE} 为空，使用内置默认文案")
-        return DEFAULT_CHAT_PROMPT
+        logger.info(f"彩蛋对话提示词文件 {CHAT_PROMPT_FILE} 为空，本次运行不附加系统提示词")
+        return ""
     return text
 
 
@@ -196,16 +195,19 @@ async def ai_match(message: str, keywords: dict[str, list[str]]) -> tuple[list[s
 
 
 async def ai_chat(user_text: str) -> tuple[str | None, str | None]:
-    """彩蛋对话回退：用预设系统提示词 + 用户文本生成回复。
+    """彩蛋对话回退：把用户原文交给对话模型生成回复。
 
+    若配置了系统提示词（prompt_chat.md 非空）则作为 system 消息一并发送；
+    否则不携带任何系统提示词，直接询问模型。
     返回 (回复文本, 错误原因)。错误原因语义同 _chat_completion。
     """
+    messages: list[dict] = []
+    if CHAT_SYSTEM_PROMPT:
+        messages.append({"role": "system", "content": CHAT_SYSTEM_PROMPT})
+    messages.append({"role": "user", "content": user_text})
     result, error = await _chat_completion(
         MODEL_CHAT,
-        [
-            {"role": "system", "content": CHAT_SYSTEM_PROMPT},
-            {"role": "user", "content": user_text},
-        ],
+        messages,
         max_tokens=2000,
         temperature=0.8,
     )

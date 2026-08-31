@@ -13,3 +13,8 @@ dependencies = [
     "nonebot2[fastapi]>=2.4.4",
     "aiohttp>=3.9.0",
 ]
+
+[dependency-groups]
+dev = [
+    "pyright>=1.1.411",
+]

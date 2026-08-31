@@ -38,6 +38,20 @@ _AI_TIMEOUT = aiohttp.ClientTimeout(total=REQUEST_TIMEOUT, connect=30, sock_read
 
 logger = logging.getLogger(__name__)
 
+# —— 瞬时故障重试：上游网关偶发 503 / 连接重置 / 超时，重试通常可立即恢复 ——
+TRANSIENT_HTTP_STATUS = {500, 502, 503, 504, 529}
+AI_RETRY_ATTEMPTS = 2  # 最多尝试 2 次（初次 + 1 次重试）
+AI_RETRY_BASE_DELAY = 1.0  # 重试退避基础时长（秒），第 n 次失败后等待 n 秒
+
+
+class _HttpError(Exception):
+    """AI API 返回非 200 状态码。"""
+
+    def __init__(self, status: int, body: str) -> None:
+        super().__init__(f"HTTP {status}")
+        self.status = status
+        self.body = body
+
 
 def _load_chat_prompt() -> str:
     """加载对话模式系统提示词：优先独立文件。
@@ -131,35 +145,52 @@ async def _chat_completion(
         "temperature": temperature,
     }
 
-    try:
-        async with AI_SEMAPHORE:
-            session = await _get_session()
-            async with session.post(url, headers=headers, json=data) as response:
-                if response.status != 200:
-                    body = (await response.text())[:200]
-                    logger.error(f"AI API 返回 HTTP {response.status}: {body}")
-                    return None, f"http_{response.status}"
+    for attempt in range(1, AI_RETRY_ATTEMPTS + 1):
+        try:
+            async with AI_SEMAPHORE:
+                session = await _get_session()
+                async with session.post(url, headers=headers, json=data) as response:
+                    if response.status != 200:
+                        body = (await response.text())[:200]
+                        raise _HttpError(response.status, body)
 
-                response_json = await response.json()
-                choice = response_json["choices"][0]
+                    response_json = await response.json()
+                    choice = response_json["choices"][0]
 
-                if choice["finish_reason"] != "stop":
-                    logger.warning(f"AI API finish_reason={choice['finish_reason']!r}，视为无内容")
-                    return None, None
+                    if choice["finish_reason"] != "stop":
+                        logger.warning(f"AI API finish_reason={choice['finish_reason']!r}，视为无内容")
+                        return None, None
 
-                return choice["message"]["content"].strip(), None
-    except asyncio.TimeoutError:
-        logger.error(f"AI 请求超时（>{REQUEST_TIMEOUT}s）")
-        return None, "timeout"
-    except (KeyError, IndexError, TypeError, ValueError, json.JSONDecodeError, aiohttp.ContentTypeError) as e:
-        logger.error(f"AI 响应解析失败: {type(e).__name__}: {e}")
-        return None, "parse"
-    except aiohttp.ClientError as e:
-        logger.error(f"AI 网络错误: {e!r}")
-        return None, "network"
-    except Exception as e:
-        logger.error(f"AI 未预期错误: {type(e).__name__}: {e}")
-        return None, "unknown"
+                    return choice["message"]["content"].strip(), None
+        except asyncio.TimeoutError:
+            if attempt < AI_RETRY_ATTEMPTS:
+                logger.warning(f"AI 请求超时（>{REQUEST_TIMEOUT}s），第 {attempt}/{AI_RETRY_ATTEMPTS} 次，等待 {AI_RETRY_BASE_DELAY * attempt:.0f}s 后重试")
+                await asyncio.sleep(AI_RETRY_BASE_DELAY * attempt)
+                continue
+            logger.error(f"AI 请求超时（>{REQUEST_TIMEOUT}s）")
+            return None, "timeout"
+        except _HttpError as exc:
+            if exc.status in TRANSIENT_HTTP_STATUS and attempt < AI_RETRY_ATTEMPTS:
+                logger.warning(f"AI API 返回 HTTP {exc.status}（瞬时故障），第 {attempt}/{AI_RETRY_ATTEMPTS} 次，等待 {AI_RETRY_BASE_DELAY * attempt:.0f}s 后重试")
+                await asyncio.sleep(AI_RETRY_BASE_DELAY * attempt)
+                continue
+            logger.error(f"AI API 返回 HTTP {exc.status}: {exc.body}")
+            return None, f"http_{exc.status}"
+        except aiohttp.ClientError as e:
+            if attempt < AI_RETRY_ATTEMPTS:
+                logger.warning(f"AI 网络错误（第 {attempt}/{AI_RETRY_ATTEMPTS} 次，将重试）: {e!r}")
+                await asyncio.sleep(AI_RETRY_BASE_DELAY * attempt)
+                continue
+            logger.error(f"AI 网络错误: {e!r}")
+            return None, "network"
+        except (KeyError, IndexError, TypeError, ValueError, json.JSONDecodeError, aiohttp.ContentTypeError) as e:
+            logger.error(f"AI 响应解析失败: {type(e).__name__}: {e}")
+            return None, "parse"
+        except Exception as e:
+            logger.error(f"AI 未预期错误: {type(e).__name__}: {e}")
+            return None, "unknown"
+
+    return None, "unknown"  # 理论上不可达（所有分支均 return）
 
 
 async def ai_match(message: str, keywords: dict[str, list[str]]) -> tuple[list[str], str | None]:

@@ -15,6 +15,7 @@ require("nonebot_plugin_alconna")
 require("src.plugins.easter_egg")
 
 from src.plugins.easter_egg import try_load_random_text
+from src.utils.safe_send import safe_finish, safe_send
 
 from nonebot_plugin_alconna import (
     Alconna,
@@ -96,9 +97,9 @@ async def send_keyword_images(keywords: list[str], prefix: str = ""):
             )
         if random_text := try_load_random_text():
             messages.append(random_text)
-        await dawu1.finish(Message(messages))
+        await safe_finish(dawu1, Message(messages))
     else:
-        await dawu1.finish(f"{prefix}: {', '.join(keywords)}，但所有图片文件都不存在")
+        await safe_finish(dawu1, f"{prefix}: {', '.join(keywords)}，但所有图片文件都不存在")
 
 
 @dawu1.handle()
@@ -112,20 +113,20 @@ async def _(
         return
 
     if not validate_input(name.result):
-        await dawu1.finish("输入无效，请提供有效的实验名称（1-100个字符）")
+        await safe_finish(dawu1, "输入无效，请提供有效的实验名称（1-100个字符）")
         return
 
     if not check_rate_limit(event.user_id):
-        await dawu1.finish("请求过于频繁，请稍后再试（每分钟最多10次请求）")
+        await safe_finish(dawu1, "请求过于频繁，请稍后再试（每分钟最多10次请求）")
         return
 
     if name.result == "ls":
         output_lines = []
         for keyword, aliases in KEYWORDS.items():
             output_lines.append(", ".join(aliases))
-        await dawu1.finish("\n".join(output_lines))
+        await safe_finish(dawu1, "\n".join(output_lines))
     elif name.result == "help":
-        await dawu1.finish(
+        await safe_finish(dawu1,
             "使用方法: 大雾1 实验名称\n例如: 大雾1 杨氏模量\n\n如果有多个关键词匹配，会显示所有匹配的关键词和对应的图片。\n如果有关键词匹配但图片不存在，会显示缺失的图片文件名。\n如果没有匹配的关键词，会提示没有找到关键词。",
             reply_message=True,
         )
@@ -134,7 +135,7 @@ async def _(
         if found_keywords:
             await send_keyword_images(found_keywords)
         else:
-            await dawu1.send(
+            await safe_send(dawu1,
                 f"正在尝试AI匹配...",
                 reply_message=True,
             )
@@ -142,19 +143,19 @@ async def _(
 
             if error:
                 if error == "config":
-                    await dawu1.finish(
+                    await safe_finish(dawu1,
                         "AI 匹配服务未配置，暂无法使用模糊匹配，请联系管理员",
                         reply_message=True,
                     )
                 else:
-                    await dawu1.finish(
+                    await safe_finish(dawu1,
                         "AI 匹配服务暂时不可用，请稍后再试",
                         reply_message=True,
                     )
             elif ai_keywords:
                 await send_keyword_images(ai_keywords, "AI匹配到： ")
             else:
-                await dawu1.finish(
+                await safe_finish(dawu1,
                     f"AI也没有找到匹配的关键词，使用'大雾1 ls'查看关键词列表",
                     reply_message=True,
                 )

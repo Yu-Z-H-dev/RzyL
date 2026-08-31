@@ -18,6 +18,7 @@ from .keywords import (
     compound_visible,
 )
 from .random_text import load_random_text as try_load_random_text
+from src.utils.safe_send import safe_finish, safe_send
 
 require("nonebot_plugin_alconna")
 
@@ -157,13 +158,13 @@ async def send_ai_matched_images(ai_keys: list[str], entities: dict[str, Entity]
                     await _append_entity_messages(entities[target_key], image_messages)
 
     if not image_messages:
-        await caidan.finish("AI 匹配到关键词但未找到可用图片", reply_message=True)
+        await safe_finish(caidan, "AI 匹配到关键词但未找到可用图片", reply_message=True)
         return
 
     messages: list = ["AI 匹配到：", *image_messages]
     if random_text := try_load_random_text():
         messages.append(random_text)
-    await caidan.finish(Message(messages))
+    await safe_finish(caidan, Message(messages))
 
 
 caidan = on_alconna(
@@ -182,7 +183,7 @@ async def _(event: MessageEvent, name: Match[str]):
     logger.info(f"收到彩蛋请求: 群{getattr(event, 'group_id', '私聊')}, 用户{event.user_id}, 内容{name.result}")
 
     if not name.available:
-        await caidan.finish("请输入名称，例如: 彩蛋 玲娜贝儿")
+        await safe_finish(caidan, "请输入名称，例如: 彩蛋 玲娜贝儿")
         return
 
     raw_text = name.result.strip()
@@ -192,7 +193,7 @@ async def _(event: MessageEvent, name: Match[str]):
 
     # 彩蛋 help: 帮助信息
     if raw_text == "help":
-        await caidan.finish(
+        await safe_finish(caidan,
             "使用方法: 彩蛋 <名称>\n例如: 彩蛋 玲娜贝儿 / 彩蛋 四大善人\n\n"
             "- 精确匹配彩蛋名称（别名直接相等匹配），返回对应图片\n"
             "- 未精确匹配时，自动使用 AI 模糊匹配彩蛋\n"
@@ -232,9 +233,9 @@ async def _(event: MessageEvent, name: Match[str]):
             )
 
         if not output_lines:
-            await caidan.finish("暂无可用彩蛋")
+            await safe_finish(caidan, "暂无可用彩蛋")
             return
-        await caidan.finish("\n".join(output_lines))
+        await safe_finish(caidan, "\n".join(output_lines))
         return
 
     # 复合体匹配（优先，因为复合体别名可能与个体别名重叠）
@@ -252,24 +253,24 @@ async def _(event: MessageEvent, name: Match[str]):
             await _append_entity_messages(entity, messages)
         if random_text := try_load_random_text():
             messages.append(random_text)
-        await caidan.finish(Message(messages))
+        await safe_finish(caidan, Message(messages))
         return
 
     # 精确未命中：AI 模糊匹配（消耗 API 额度，按用户限流）
     if not check_rate_limit(event.user_id):
-        await caidan.finish("请求过于频繁，请稍后再试（每分钟最多10次请求）")
+        await safe_finish(caidan, "请求过于频繁，请稍后再试（每分钟最多10次请求）")
         return
 
-    await caidan.send("正在思考...")
+    await safe_send(caidan, "正在思考...")
 
     ai_keywords = build_ai_keywords(entities, compounds)
     ai_keys, error = await ai_match(raw_text, ai_keywords)
 
     if error:
         if error == "config":
-            await caidan.finish("AI 匹配服务未配置，暂无法使用模糊匹配，请联系管理员", reply_message=True)
+            await safe_finish(caidan, "AI 匹配服务未配置，暂无法使用模糊匹配，请联系管理员", reply_message=True)
         else:
-            await caidan.finish("AI 匹配服务暂时不可用，请稍后再试", reply_message=True)
+            await safe_finish(caidan, "AI 匹配服务暂时不可用，请稍后再试", reply_message=True)
         return
 
     if ai_keys:
@@ -281,11 +282,11 @@ async def _(event: MessageEvent, name: Match[str]):
     reply, chat_error = await ai_chat(raw_text)
     if chat_error:
         if chat_error == "config":
-            await caidan.finish("对话服务未配置，暂无法使用", reply_message=True)
+            await safe_finish(caidan, "对话服务未配置，暂无法使用", reply_message=True)
         else:
-            await caidan.finish("对话服务暂时不可用，请稍后再试", reply_message=True)
+            await safe_finish(caidan, "对话服务暂时不可用，请稍后再试", reply_message=True)
         return
     if reply:
-        await caidan.finish(reply, reply_message=True)
+        await safe_finish(caidan, reply, reply_message=True)
     else:
-        await caidan.finish("（没有想好要说什么）", reply_message=True)
+        await safe_finish(caidan, "（没有想好要说什么）", reply_message=True)

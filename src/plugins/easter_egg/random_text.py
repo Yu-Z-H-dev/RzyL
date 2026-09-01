@@ -1,5 +1,4 @@
 import random
-from datetime import datetime
 from pathlib import Path
 
 
@@ -19,15 +18,8 @@ def load_random_line(filename: str) -> str | None:
 
 
 def load_random_text() -> str | None:
-    weekday = datetime.now().weekday()
-    prob = 0.5 if weekday in (1, 4) else 0.2
-
     if random.random() < 0.4:
         sentence = load_random_line("sentences.txt")
         if sentence:
             return f"\n{sentence}"
-    elif random.random() < prob:
-        question = load_random_line("question.txt")
-        if question:
-            return f"\n{question}"
     return None

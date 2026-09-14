@@ -139,6 +139,13 @@ async def ai_match(message: str, keywords: dict[str, list[str]]) -> tuple[list[s
                         return [], None
 
                     result = choice["message"]["content"].strip()
+
+                    # 成功路径必须留在循环内：否则拿到结果后既不 return 也不 break，
+                    # 会重复发起第二次请求（耗时翻倍），并最终落到循环外的 "unknown"，
+                    # 把"AI 成功但无匹配"误报成"服务不可用"。
+                    if result == "NONE":
+                        return [], None
+                    return [k.strip() for k in result.split(",") if k.strip()], None
         except asyncio.TimeoutError:
             if attempt < AI_RETRY_ATTEMPTS:
                 logger.warning(f"AI 匹配请求超时（>{REQUEST_TIMEOUT}s），第 {attempt}/{AI_RETRY_ATTEMPTS} 次，等待 {AI_RETRY_BASE_DELAY * attempt:.0f}s 后重试")
@@ -167,10 +174,6 @@ async def ai_match(message: str, keywords: dict[str, list[str]]) -> tuple[list[s
             logger.error(f"AI 匹配未预期错误: {type(e).__name__}: {e}")
             return [], "unknown"
 
-    return [], "unknown"  # 理论上不可达（所有分支均 return）
-
-    if result == "NONE":
-        return [], None
-
-    keywords_found = [k.strip() for k in result.split(",")]
-    return keywords_found, None
+    # 兜底：正常流程不应到达（所有分支都在循环内返回）
+    logger.error("AI 匹配重试循环异常结束（不应到达）")
+    return [], "unknown"

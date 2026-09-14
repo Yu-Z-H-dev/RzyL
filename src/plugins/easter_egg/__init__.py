@@ -18,6 +18,7 @@ from .keywords import (
     compound_visible,
 )
 from .random_text import load_random_text as try_load_random_text
+from src.utils.ai_error import format_ai_error
 from src.utils.safe_send import safe_finish, safe_send
 
 require("nonebot_plugin_alconna")
@@ -267,10 +268,8 @@ async def _(event: MessageEvent, name: Match[str]):
     ai_keys, error = await ai_match(raw_text, ai_keywords)
 
     if error:
-        if error == "config":
-            await safe_finish(caidan, "AI 匹配服务未配置，暂无法使用模糊匹配，请联系管理员", reply_message=True)
-        else:
-            await safe_finish(caidan, "AI 匹配服务暂时不可用，请稍后再试", reply_message=True)
+        # 失败原因可区分：config / timeout / network / http_<状态码> / parse / unknown
+        await safe_finish(caidan, format_ai_error(error), reply_message=True)
         return
 
     if ai_keys:
@@ -281,10 +280,8 @@ async def _(event: MessageEvent, name: Match[str]):
     # AI 也未匹配（视为用户在「彩蛋」后说了无关/无意义的话）：对话回退，引用该用户的发言
     reply, chat_error = await ai_chat(raw_text)
     if chat_error:
-        if chat_error == "config":
-            await safe_finish(caidan, "对话服务未配置，暂无法使用", reply_message=True)
-        else:
-            await safe_finish(caidan, "对话服务暂时不可用，请稍后再试", reply_message=True)
+        # 对话回退失败同样区分原因
+        await safe_finish(caidan, format_ai_error(chat_error), reply_message=True)
         return
     if reply:
         await safe_finish(caidan, reply, reply_message=True)

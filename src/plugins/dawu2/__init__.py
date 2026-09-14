@@ -15,6 +15,7 @@ require("nonebot_plugin_alconna")
 require("src.plugins.easter_egg")
 
 from src.plugins.easter_egg import try_load_random_text
+from src.utils.ai_error import format_ai_error
 from src.utils.safe_send import safe_finish, safe_send
 
 from nonebot_plugin_alconna import (
@@ -136,16 +137,8 @@ async def _(
             ai_keywords, error = await ai_match(name.result, KEYWORDS)
 
             if error:
-                if error == "config":
-                    await safe_finish(dawu2,
-                        "AI 匹配服务未配置，暂无法使用模糊匹配，请联系管理员",
-                        reply_message=True,
-                    )
-                else:
-                    await safe_finish(dawu2,
-                        "AI 匹配服务暂时不可用，请稍后再试",
-                        reply_message=True,
-                    )
+                # 失败原因可区分：config / timeout / network / http_<状态码> / parse / unknown
+                await safe_finish(dawu2, format_ai_error(error), reply_message=True)
             elif ai_keywords:
                 await send_keyword_images(ai_keywords, "AI匹配到： ")
             else:

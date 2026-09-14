@@ -21,3 +21,6 @@ wheels/
 # 彩蛋配置文件（本地配置，不同步）
 src/asserts/easter_egg/keywords.json
 src/asserts/easter_egg/prompt_chat.md
+
+# 二级大雾题库源码与 PDF（切片原料，不入库；仅切片产物 src/asserts/dawu2/*.jpg 入库）
+二级大雾题库/

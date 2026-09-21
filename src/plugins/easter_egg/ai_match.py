@@ -196,6 +196,10 @@ async def _chat_completion(
 async def ai_match(message: str, keywords: dict[str, list[str]]) -> tuple[list[str], str | None]:
     """AI 模糊匹配彩蛋关键词，返回 (关键词列表, 错误原因)。
 
+    返回的键一定真实存在于传入的 `keywords` 中：模型可能杜撰键名，或照抄提示词里的
+    格式示例，这类键下游无法解析，会导致「AI 匹配到关键词但未找到可用图片」并跳过对话
+    回退，因此这里统一过滤掉。
+
     错误原因为 None 表示流程正常完成（此时关键词列表可能为空，表示无匹配）；
     非 None 表示发生错误（config / timeout / network / parse / http_<status> / unknown）。
     """
@@ -203,8 +207,9 @@ async def ai_match(message: str, keywords: dict[str, list[str]]) -> tuple[list[s
     keywords_info = "\n".join(keywords_list)
 
     system_prompt = f"""你是一个彩蛋关键词匹配助手。
-任务：根据用户输入快速返回所有可能匹配的关键词（只返回关键词本身，不要返回任何别名），如果用户的输入与下列彩蛋主题（迪士尼角色、教师人物、AI 模型、学校、组合等）毫无关系则直接返回NONE
-方法：在第一次浏览关键词的过程中对每个关键词进行匹配，例如：'LinaBell: 玲娜贝儿, 贝贝 - 不相关，...'，不要思考太多，不需要重新检查，浏览过后直接输出结果。规则：用户的输入与关键词的任意一个别名相关即认为匹配，多个用逗号分隔，无匹配返回NONE
+任务：根据用户输入快速返回所有可能匹配的关键词（只返回关键词本身，不要返回任何别名），如果用户的输入与下列彩蛋主题（人物、AI 模型、学校、组织、梗等）毫无关系则直接返回NONE
+方法：在第一次浏览关键词的过程中对每个关键词进行匹配，例如：'SomeKey: 别名甲, 别名乙 - 不相关，...'，不要思考太多，不需要重新检查，浏览过后直接输出结果。规则：用户的输入与关键词的任意一个别名相关即认为匹配，多个用逗号分隔，无匹配返回NONE
+注意：只能返回下方列表中出现过的键名，禁止杜撰，也禁止返回列表以外的任何内容。
 
 关键词及其别名的列表如下：
 {keywords_info}"""
@@ -222,7 +227,9 @@ async def ai_match(message: str, keywords: dict[str, list[str]]) -> tuple[list[s
         return [], error
     if not result or result == "NONE":
         return [], None
-    return [k.strip() for k in result.split(",") if k.strip()], None
+    keys = [k.strip() for k in result.split(",") if k.strip()]
+    # 只保留本次关键词表里真实存在的键，杜撰/示例残留的键一律丢弃（丢弃后为空即走对话回退）
+    return [k for k in keys if k in keywords], None
 
 
 async def ai_chat(user_text: str) -> tuple[str | None, str | None]:

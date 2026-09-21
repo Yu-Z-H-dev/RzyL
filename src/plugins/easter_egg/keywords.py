@@ -83,3 +83,47 @@ def compound_visible(compound: Compound, entities: dict[str, Entity]) -> bool:
     if not compound.targets:
         return False
     return all(target in entities for target in compound.targets)
+
+
+MAX_HELP_EXAMPLES = 3
+
+
+def build_help_examples(
+    entities: dict[str, Entity],
+    compounds: dict[str, Compound],
+    limit: int = MAX_HELP_EXAMPLES,
+) -> list[str]:
+    """挑出当前真正可用的彩蛋名，供 help 文本当示例。
+
+    只从可见集合里选（entities 已由 load_entities 按开关过滤，复合体再过一遍
+    compound_visible），因此示例永远不会指向被禁用或删除的彩蛋。
+
+    选取顺序：每个已开启的类各取一个 -> 顶层个体 -> 可见复合体。
+    同类内取 keywords.json 中声明顺序最靠前的那个，所以把想展示的名字排在前面即可。
+    """
+    examples: list[str] = []
+
+    def _add(name: str) -> None:
+        if name and name not in examples and len(examples) < limit:
+            examples.append(name)
+
+    # 1) 每个已开启的类各取一个代表，体现"彩蛋是分类的"
+    picked_categories: set[str] = set()
+    for entity in entities.values():
+        if entity.category is None or entity.category in picked_categories:
+            continue
+        if entity.aliases:
+            picked_categories.add(entity.category)
+            _add(entity.aliases[0])
+
+    # 2) 顶层个体（不隶属任何类，始终可用）
+    for entity in entities.values():
+        if entity.category is None and entity.aliases:
+            _add(entity.aliases[0])
+
+    # 3) 可见复合体（如「四大善人」，其 targets 全可见时才出现）
+    for compound in compounds.values():
+        if compound_visible(compound, entities) and compound.aliases:
+            _add(compound.aliases[0])
+
+    return examples

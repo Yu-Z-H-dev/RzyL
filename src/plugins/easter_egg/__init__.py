@@ -12,6 +12,7 @@ from .ai_match import ai_chat, ai_match
 from .keywords import (
     Compound,
     Entity,
+    build_help_examples,
     load_categories,
     load_entities,
     load_compounds,
@@ -194,8 +195,16 @@ async def _(event: MessageEvent, name: Match[str]):
 
     # 彩蛋 help: 帮助信息
     if raw_text == "help":
+        # 示例从当前可见彩蛋里动态生成，避免指向已被禁用/删除的名字
+        examples = build_help_examples(entities, compounds)
+        example_line = (
+            "例如: " + " / ".join(f"彩蛋 {name}" for name in examples) + "\n"
+            if examples
+            else ""
+        )
+
         await safe_finish(caidan,
-            "使用方法: 彩蛋 <名称>\n例如: 彩蛋 玲娜贝儿 / 彩蛋 四大善人\n\n"
+            f"使用方法: 彩蛋 <名称>\n{example_line}\n"
             "- 精确匹配彩蛋名称（别名直接相等匹配），返回对应图片\n"
             "- 未精确匹配时，自动使用 AI 模糊匹配彩蛋\n"
             "- 若仍无匹配，会作为对话机器人回复你的发言\n"

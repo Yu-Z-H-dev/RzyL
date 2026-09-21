@@ -30,8 +30,8 @@ logger = logging.getLogger(__name__)
 
 __plugin_meta__ = PluginMetadata(
     name="彩蛋插件",
-    description="迪士尼角色彩蛋查询与随机文本",
-    usage="发送 彩蛋 <角色名> 查询图片；发送 彩蛋 ls 查看所有可用彩蛋",
+    description="图片彩蛋查询（类 / 个体 / 复合体）与随机一言",
+    usage="发送 彩蛋 <名称> 查询图片；发送 彩蛋 ls 查看所有可用彩蛋；发送 彩蛋 help 查看帮助",
     type="application",
     supported_adapters={"~onebot.v11"},
 )
@@ -184,14 +184,17 @@ async def _resolve_image_or_none(entity: Entity) -> Path | None:
 async def _(event: MessageEvent, name: Match[str]):
     logger.info(f"收到彩蛋请求: 群{getattr(event, 'group_id', '私聊')}, 用户{event.user_id}, 内容{name.result}")
 
+    entities = load_entities()
+    compounds = load_compounds()
+
     if not name.available:
-        await safe_finish(caidan, "请输入名称，例如: 彩蛋 玲娜贝儿")
+        # 示例同样按当前可见彩蛋生成，避免提示一个已被禁用/删除的名字
+        examples = build_help_examples(entities, compounds)
+        hint = f"，例如: 彩蛋 {examples[0]}" if examples else "，发送「彩蛋 ls」查看可用彩蛋"
+        await safe_finish(caidan, f"请输入名称{hint}")
         return
 
     raw_text = name.result.strip()
-
-    entities = load_entities()
-    compounds = load_compounds()
 
     # 彩蛋 help: 帮助信息
     if raw_text == "help":

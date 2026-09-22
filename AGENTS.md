@@ -132,6 +132,8 @@ VM 上有项目自身的 venv 和真实配置，可直接驱动插件真实 hand
 
 - **变更链路**：本地 commit → 推到 GitHub → VM 上 `git pull --ff-only` → **重启 bot**（改 Python 必须重启才生效）。不要用 `ssh_upload` 直接覆盖 VM 上的文件，那会让 VM 与 git 记录分叉，后续 `pull` 冲突。
 - **VM 重启方式**：`bash start-bot.sh`。它只 `pkill -f 'uv run bot.py'`，不碰 NapCat，因此不会触发重新扫码。启动后看 `bot_output.log` 确认插件加载与 `OneBot V11 | Bot <QQ> connected`。
+- **别在同一条 SSH 命令里写出 `uv run bot.py` 这个字面量**（例如拿它当 `grep` / `ps` 的匹配模式）再去调 `start-bot.sh`：那条命令自己的命令行也含这个字符串，脚本里的 `pkill -f` 会连你的会话一起杀掉。用 `grep "bot[.]py"` 这类写法规避。
+- **启动日志里 `easter_egg` 可能被打印两次**（`dawu` / `dawu2` 对它 `require`），这**不是**重复注册：`nonebot.get_loaded_plugins()` 里它只有一个实例，处理「彩蛋」的 matcher 也只有一个，不会重复回复。
 - **禁用 ≠ 删除**：`enabled: false` 只是不可见，资源仍在仓库里（如 `factor/`、`Origin/`）。文档与提示语里不要写死彩蛋名，用 `build_help_examples()` 之类从可见集合生成。
 - **本地没有 `keywords.json`**：它是 gitignore 的本地配置，只在 VM 上。改彩蛋相关行为前，先到 VM 读真实配置，否则会基于错误的前提改动（本地直接跑 `load_entities()` 会抛 `FileNotFoundError`）。
 - **切图页码映射**：硬编码在 `scripts/slice_dawu2.py`。题库更新后必须**逐页**核对实验标题与页码，不能想当然——曾出现「双臂电桥」由单页变跨页，导致其后所有实验页码 +1。

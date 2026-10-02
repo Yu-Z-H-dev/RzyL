@@ -9,10 +9,12 @@ import nonebot
 config = nonebot.get_driver().config
 
 # 配置默认值
-BASE_URL = getattr(config, "base_url", "")
-API_KEY = getattr(config, "api_key", "")
-MODEL_THINK = getattr(config, "model_think", "")  # 模糊匹配用
-MODEL_CHAT = getattr(config, "model_chat", "")    # 对话回退用
+# 彩蛋可选的独立配置：设置 EASTER_EGG_* 后本插件单独走该 provider/模型，
+# 不影响 dawu/dawu2 共用的 BASE_URL / API_KEY / MODEL_THINK（未设置则回退到共用值）。
+BASE_URL = getattr(config, "easter_egg_base_url", "") or getattr(config, "base_url", "")
+API_KEY = getattr(config, "easter_egg_api_key", "") or getattr(config, "api_key", "")
+MODEL_THINK = getattr(config, "easter_egg_model_think", "") or getattr(config, "model_think", "")  # 模糊匹配用
+MODEL_CHAT = getattr(config, "easter_egg_model_chat", "") or getattr(config, "model_chat", "")    # 对话回退用
 
 # 对话模式自定义提示词文件（UTF-8），文件内可任意换行排版；
 # 该文件属本地配置，不在版本库内（见 prompt_chat.example.md 模板与 .gitignore）。

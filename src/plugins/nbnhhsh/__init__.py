@@ -4,8 +4,8 @@
 例如：解释 awmc   ->   1. 唉舞萌痴  2. 爱玩mc  ...
 数据来自 lab.magiconch.com 的 nbnhhsh 公开接口。
 
-`JIESHI_BLOCKED_GROUPS` 列出的群聊中本命令**完全不响应**（静默）。
-其他群聊与私聊不受影响。
+仅 `JIESHI_ALLOWED_GROUPS` 列出的群聊可用本命令（留空 = 所有群都可用）。
+未列出的群里本命令**完全不响应**（静默）；私聊不受限制。
 """
 
 import json
@@ -65,21 +65,24 @@ def _parse_groups(raw: Any) -> list[int]:
     return []
 
 
-# 禁用本命令的群聊（黑名单），留空 = 所有群都可用；私聊永不受限
-BLOCKED_GROUPS: list[int] = _parse_groups(
-    getattr(get_driver().config, "jieshi_blocked_groups", None)
+# 允许使用本命令的群聊（白名单），留空 = 所有群都可用；私聊永不受限
+ALLOWED_GROUPS: list[int] = _parse_groups(
+    getattr(get_driver().config, "jieshi_allowed_groups", None)
 )
 
 
-def not_blocked(event: MessageEvent) -> bool:
-    """Rule：消息不在黑名单群中时放行。
+def in_allowed_group(event: MessageEvent) -> bool:
+    """Rule：消息所在群在白名单中时放行。
 
-    私聊（无 group_id）放行；群聊仅当群号在 BLOCKED_GROUPS 中时拦截。
+    私聊（无 group_id）放行；白名单为空时所有群放行；
+    否则仅当群号在 ALLOWED_GROUPS 中时放行。
     """
     group_id = getattr(event, "group_id", None)
     if group_id is None:
         return True
-    return int(group_id) not in BLOCKED_GROUPS
+    if not ALLOWED_GROUPS:
+        return True
+    return int(group_id) in ALLOWED_GROUPS
 
 
 def validate_input(text: str) -> bool:
@@ -92,7 +95,7 @@ def validate_input(text: str) -> bool:
 
 jieShi = on_alconna(
     Alconna("解释", Args["text", str]),
-    rule=Rule(not_blocked),
+    rule=Rule(in_allowed_group),
     priority=0,
     block=True,
 )

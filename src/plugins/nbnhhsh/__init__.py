@@ -3,11 +3,16 @@
 用法：解释 <缩写>
 例如：解释 awmc   ->   1. 唉舞萌痴  2. 爱玩mc  ...
 数据来自 lab.magiconch.com 的 nbnhhsh 公开接口。
+
+`JIESHI_BLOCKED_GROUPS` 列出的群聊中本命令**完全不响应**（静默）。
+其他群聊与私聊不受影响。
 """
 
+import json
 import logging
+from typing import Any
 
-from nonebot import require
+from nonebot import get_driver, require
 from nonebot.adapters.onebot.v11 import MessageEvent
 from nonebot.rule import Rule
 
@@ -32,6 +37,51 @@ MAX_TRANS = 20
 MAX_INPUT_LEN = 50
 
 
+def _parse_groups(raw: Any) -> list[int]:
+    """解析群号配置，兼容 str / int / list 三种形态（与 dawu/config.py 同一套逻辑）。
+
+    NoneBot 加载自定义配置时会先尝试 json.loads，导致单个群号变 int、
+    JSON 数组变 list，这里统一归一。
+    """
+    if raw is None:
+        return []
+    if isinstance(raw, int):
+        return [raw]
+    if isinstance(raw, list):
+        return [int(x) for x in raw if str(x).strip().isdigit()]
+    if isinstance(raw, str):
+        raw = raw.strip()
+        if not raw:
+            return []
+        try:
+            parsed = json.loads(raw)
+        except ValueError:
+            parsed = raw
+        if isinstance(parsed, list):
+            return [int(x) for x in parsed if str(x).strip().isdigit()]
+        if isinstance(parsed, int):
+            return [parsed]
+        return [int(x) for x in str(parsed).split(",") if x.strip().isdigit()]
+    return []
+
+
+# 禁用本命令的群聊（黑名单），留空 = 所有群都可用；私聊永不受限
+BLOCKED_GROUPS: list[int] = _parse_groups(
+    getattr(get_driver().config, "jieshi_blocked_groups", None)
+)
+
+
+def not_blocked(event: MessageEvent) -> bool:
+    """Rule：消息不在黑名单群中时放行。
+
+    私聊（无 group_id）放行；群聊仅当群号在 BLOCKED_GROUPS 中时拦截。
+    """
+    group_id = getattr(event, "group_id", None)
+    if group_id is None:
+        return True
+    return int(group_id) not in BLOCKED_GROUPS
+
+
 def validate_input(text: str) -> bool:
     if not text or not text.strip():
         return False
@@ -42,6 +92,7 @@ def validate_input(text: str) -> bool:
 
 jieShi = on_alconna(
     Alconna("解释", Args["text", str]),
+    rule=Rule(not_blocked),
     priority=0,
     block=True,
 )

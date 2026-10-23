@@ -1,6 +1,9 @@
-"""把 二级大雾题库.pdf 按实验切图，生成 src/asserts/dawu2/{键}.jpg。
+"""把 二级大雾题库 PDF 按实验切图，生成 src/asserts/dawu2/{键}.jpg。
 
 每个实验一张整图：单页实验直接渲染该页；多页实验纵向拼接后存为一张 JPG。
+
+题库版本：v2.0（2026-10-22）。新版本到位后，先把 PDF 放进 `二级大雾题库/`，
+更新下面的 PDF 文件名与 EXPERIMENTS 映射，再运行本脚本。
 """
 from pathlib import Path
 import subprocess
@@ -9,7 +12,7 @@ import tempfile
 from PIL import Image  # type: ignore[import-not-found]  # 系统级安装，.venv 中无此包
 
 PROJECT = Path.cwd()
-PDF = PROJECT / "二级大雾题库" / "二级大雾题库.pdf"
+PDF = PROJECT / "二级大雾题库" / "二级大雾题库v2.0.pdf"
 OUT = PROJECT / "src" / "asserts" / "dawu2"
 DPI = 150
 
@@ -31,17 +34,18 @@ EXPERIMENTS = {
     "AC_Resonance": [22, 23],
     "Dielectric_Constant": [24, 24],
     "Michelson_Interferometer": [25, 26],
-    "Double_Grating": [27, 27],
-    "Polarized_Light": [28, 28],
-    "Ultrasonic_Grating": [29, 30],
-    "Ultrasonic_Locating": [31, 31],
-    "Optical_Fiber_Sensor": [32, 32],
-    "Bicurvature_Lens_1": [33, 33],
-    "Bicurvature_Lens_2": [34, 35],
-    "FH_Experiment": [36, 36],
-    "Spectrograph": [37, 37],
-    "Monochromator": [38, 38],
-    "Medical_Physics": [39, 40],
+    # v2.0：双光栅实验由单页变为跨页（27-28），其后所有实验页码 +1
+    "Double_Grating": [27, 28],
+    "Polarized_Light": [29, 29],
+    "Ultrasonic_Grating": [30, 31],
+    "Ultrasonic_Locating": [32, 32],
+    "Optical_Fiber_Sensor": [33, 33],
+    "Bicurvature_Lens_1": [34, 34],
+    "Bicurvature_Lens_2": [35, 36],
+    "FH_Experiment": [37, 37],
+    "Spectrograph": [38, 38],
+    "Monochromator": [39, 39],
+    "Medical_Physics": [40, 41],
 }
 
 

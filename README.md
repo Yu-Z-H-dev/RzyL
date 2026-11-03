@@ -39,6 +39,7 @@ AI_TIMEOUT=180                                # AI 请求总超时秒数（默�
 AI_CONCURRENCY=5                              # AI 请求并发上限（默认 5）
 DAWU_ALLOWED_GROUPS=                          # 允许使用大雾1插件的群号，逗号分隔，留空全部放行
 DAWU2_ALLOWED_GROUPS=                         # 允许使用大雾2插件的群号，逗号分隔，留空全部放行
+JIESHI_ALLOWED_GROUPS=                        # 允许使用「解释」命令的群号，逗号分隔；留空=所有群可用，私聊永不受限
 # 彩蛋对话回退提示词改为独立文件 src/asserts/easter_egg/prompt_chat.md（见「彩蛋系统说明」），不再从 env 读取
 ```
 
@@ -72,6 +73,7 @@ DRIVER=~aiohttp
 | `彩蛋 <名称>` | 彩蛋查询，精确/AI 模糊匹配；均无匹配时作为对话机器人回复 |
 | `彩蛋 ls` | 按类列出所有可用彩蛋 |
 | `彩蛋 help` | 彩蛋帮助信息 |
+| `解释 <缩写>` | 查询网络用语（拼音缩写）的全称，如 `解释 awmc`；仅 `JIESHI_ALLOWED_GROUPS` 白名单群响应，私聊不受限 |
 
 ### 示例
 
@@ -131,6 +133,9 @@ RzyL/
         │   ├── keywords.py     #   注册表解析（enabled 过滤 + help 示例生成）
         │   ├── random_text.py  #   随机文本加载
         │   └── sentences.txt   #   随机一言
+        ├── nbnhhsh/            # 「解释」插件（网络用语/拼音缩写查询）
+        │   ├── __init__.py     #   命令处理 + 群白名单
+        │   └── api.py          #   lab.magiconch.com 的 nbnhhsh 接口
         └── echo/               # Echo 示例插件（代码全部被注释，实际未启用）
 ```
 

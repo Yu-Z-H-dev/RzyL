@@ -36,6 +36,7 @@ RzyL/
         ├── dawu/               # 大雾1
         ├── dawu2/              # 大雾2（与 dawu 同构，两个目录的文件逐字节相同）
         ├── easter_egg/         # 彩蛋
+        ├── nbnhhsh/            # 「解释」网络用语（拼音缩写）查询
         └── echo/               # 示例插件，代码全部被注释，实际未启用
 ```
 
@@ -66,6 +67,7 @@ uv run pyright       # 静态类型检查（pyrightconfig.json 指向 .venv）
 | `彩蛋 <名称>` | 彩蛋查询，精确 / AI 模糊匹配；均未命中时作为对话机器人回复 |
 | `彩蛋 ls` | 按类列出所有可见彩蛋 |
 | `彩蛋 help` | 彩蛋帮助信息 |
+| `解释 <缩写>` | 网络用语（拼音缩写）查询，数据来自 lab.magiconch.com 的 nbnhhsh 接口；仅 `JIESHI_ALLOWED_GROUPS` 白名单群响应，私聊不受限 |
 
 ## 核心机制
 
@@ -107,7 +109,7 @@ uv run pyright       # 静态类型检查（pyrightconfig.json 指向 .venv）
 
 ## 配置与安全
 
-- 复制 `.env.secret.temple` → `.env.secret`，填入 `BASE_URL` / `API_KEY` / `MODEL_CHAT` / `MODEL_THINK` / `MODEL_LITE`，以及可选的 `AI_TIMEOUT` / `AI_CONCURRENCY` / `DAWU_ALLOWED_GROUPS` / `DAWU2_ALLOWED_GROUPS`。
+- 复制 `.env.secret.temple` → `.env.secret`，填入 `BASE_URL` / `API_KEY` / `MODEL_CHAT` / `MODEL_THINK` / `MODEL_LITE`，以及可选的 `AI_TIMEOUT` / `AI_CONCURRENCY` / `DAWU_ALLOWED_GROUPS` / `DAWU2_ALLOWED_GROUPS` / `JIESHI_ALLOWED_GROUPS`。
 - `.env`、`.env.secret`、`src/asserts/easter_egg/keywords.json`、`src/asserts/easter_egg/prompt_chat.md` 均被 `.gitignore` 忽略，永不提交。分享日志时同样注意 API 响应中的敏感内容。
 
 ## 代码风格与命名

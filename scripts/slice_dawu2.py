@@ -2,8 +2,9 @@
 
 每个实验一张整图：单页实验直接渲染该页；多页实验纵向拼接后存为一张 JPG。
 
-题库版本：v2.0（2026-10-22）。新版本到位后，先把 PDF 放进 `二级大雾题库/`，
-更新下面的 PDF 文件名与 EXPERIMENTS 映射，再运行本脚本。
+题库版本：v2.3（2026-11-03；文档内封面标注 Version 2.2）。新版本到位后，先把 PDF
+放进 `二级大雾题库/`，更新下面的 PDF 文件名与 EXPERIMENTS 映射（页码未变则无需改），
+再运行本脚本。
 """
 from pathlib import Path
 import subprocess
@@ -12,7 +13,7 @@ import tempfile
 from PIL import Image  # type: ignore[import-not-found]  # 系统级安装，.venv 中无此包
 
 PROJECT = Path.cwd()
-PDF = PROJECT / "二级大雾题库" / "二级大雾题库v2.0.pdf"
+PDF = PROJECT / "二级大雾题库" / "二级大雾题库v2.3.pdf"
 OUT = PROJECT / "src" / "asserts" / "dawu2"
 DPI = 150
 

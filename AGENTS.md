@@ -36,7 +36,11 @@ RzyL/
         ├── dawu/               # 大雾1
         ├── dawu2/              # 大雾2（与 dawu 同构，两个目录的文件逐字节相同）
         ├── easter_egg/         # 彩蛋
+        ├── nbnhhsh/            # 「解释」网络用语查询
+        ├── group_verify/       # 入群申请自动验证（qq.ustc.life 证明码），见下文
         └── echo/               # 示例插件，代码全部被注释，实际未启用
+tests/
+└── test_group_verify.py        # group_verify 纯逻辑 + 编排的单测（标准库 unittest）
 ```
 
 资源加载统一用 `Path(__file__).parent.parent.parent / "asserts" / ...` 定位；图片路径常用 `Path.cwd() / "src" / "asserts" / ...`。
@@ -47,11 +51,10 @@ RzyL/
 uv sync              # 安装依赖
 uv run bot.py        # 运行机器人（OneBot v11 适配器）
 uv run pyright       # 静态类型检查（pyrightconfig.json 指向 .venv）
+.venv/bin/python -m unittest discover -s tests -v   # 单测（标准库 unittest，无需额外依赖）
 ```
 
 若 `uv` 不在 PATH（例如非交互 SSH），可直接用 `.venv/bin/python` / `.venv/bin/pyright`；VM 上 `uv` 位于 `/opt/vlab/bin`。
-
-无测试框架。改动后用 `uv run pyright` + 实际命令验证。
 
 ## 命令一览
 
@@ -95,6 +98,36 @@ uv run pyright       # 静态类型检查（pyrightconfig.json 指向 .venv）
 - **AI 返回值**：`easter_egg/ai_match.py` 的 `ai_match` 保证返回的键一定存在于传入的 `keywords` 中（会过滤模型杜撰的键），调用方可放心按 key 取值。
 - **对话提示词**：从 `src/asserts/easter_egg/prompt_chat.md` 加载（本地配置、gitignore）；文件缺失或为空时不附加任何提示词。
 
+### 入群申请自动验证 group_verify
+
+`qq.ustc.life` 提供「QQ 号证明」：群友用统一身份认证生成一个 7 天有效的证明码，
+加群时把 `答案：<证明码>` 写进申请留言。本插件自动核验并审批加群申请。
+
+- **事件来源**：NapCat 把事件**广播**给同一 NapCat 的所有正向 WS 客户端，本进程
+  （NoneBot 的 OneBot v11 适配器，连 `ws://127.0.0.1:3001`）本来就能收到
+  `GroupRequestEvent`，与 MaiBot 并行消费互不影响。**不需要**新连接/改 NapCat。
+- **入口**：`on_request(rule=Rule(_is_group_add_request), priority=10, block=True)`
+  只认 `post_type=request & request_type=group & sub_type=add`。
+- **职责划分**：`__init__.py` 只做「过滤 → 调 service → 按结论审批」；
+  `verify_core.py` 是纯函数（留言解析 / 页面解析 / 双重校验 / 脱敏）；
+  `proof_client.py` 抓页面；`approval.py` 调 `set_group_add_request`；
+  `rate_limit.py` 全局限流 + flag 去重；`namelist.py` 名单核验；`notify.py` 转人工通知。
+- **校验**：① 页面「QQ 号」严格等于事件 `user_id`（统一转 str 比较）；
+  ② 学号匹配 `GROUP_VERIFY_STUDENT_ID_PATTERN`（默认 `^PB\d{8}$`）且能在
+  `GetNameList/data/final/identity.json` 名单里找到（可用 `GROUP_VERIFY_REQUIRE_NAMELIST=false` 关掉）。
+  ③ 掩码学号（站点允许「选择展示几位学号」，如 `PB2506****`）改走
+  **可见前缀在名单里能找到人**，这正是站点 FAQ 推荐的用法。
+- **限流**：`IntervalLimiter` 是进程内全局串行队列，任意两次请求间隔 ≥
+  `GROUP_VERIFY_MIN_REQUEST_INTERVAL_SECONDS`（默认 1s，站点 FAQ 要求）。队列满或排队超时 →
+  转人工，不堆积。失败最多重试 1 次，且重试必须重新排队。
+- **结论三类**：`approve`（同意）/ `reject`（拒绝，带中文 reason）/ `manual`
+  （服务不可用、队列满 → 只落 WARN 日志，等人工处理，**绝不因审核服务故障误伤用户**）。
+  另外 `ignored`：非白名单群、总开关关闭、flag 重复 → 静默。
+- **幂等**：`FlagCache` 记住已处理的 flag（TTL 默认 600s），应对事件重放/重连。
+- **dry_run**（默认 true）：只打 `[dry-run] 将执行 set_group_add_request …`，不真调用。
+
+---
+
 ### AI 调用
 
 三个插件**各自持有一份 `ai_match.py`**（大雾1 与大雾2 的两份逐字节相同；彩蛋那份另含对话回退）。修改其中一个时，注意是否需要同步另外两个。
@@ -108,6 +141,9 @@ uv run pyright       # 静态类型检查（pyrightconfig.json 指向 .venv）
 ## 配置与安全
 
 - 复制 `.env.secret.temple` → `.env.secret`，填入 `BASE_URL` / `API_KEY` / `MODEL_CHAT` / `MODEL_THINK` / `MODEL_LITE`，以及可选的 `AI_TIMEOUT` / `AI_CONCURRENCY` / `DAWU_ALLOWED_GROUPS` / `DAWU2_ALLOWED_GROUPS`。
+- 入群验证的开关全在 `GROUP_VERIFY_*`（见 `.env.secret.temple` 注释）：`ENABLED`（默认 false）、
+  `GROUP_WHITELIST`（留空=哪个群都不处理）、`DRY_RUN`（默认 true）、限流/队列/超时、
+  `STUDENT_ID_PATTERN`、`PROOF_URL_TEMPLATE`、`REQUIRE_NAMELIST`、`NAMELIST_PATH`、`NAMELIST_COHORTS`。
 - `.env`、`.env.secret`、`src/asserts/easter_egg/keywords.json`、`src/asserts/easter_egg/prompt_chat.md` 均被 `.gitignore` 忽略，永不提交。分享日志时同样注意 API 响应中的敏感内容。
 
 ## 代码风格与命名
@@ -116,13 +152,42 @@ uv run pyright       # 静态类型检查（pyrightconfig.json 指向 .venv）
 
 ## 测试与验证
 
-无测试框架，也不要在没有框架的情况下新增测试文件。改动行为后至少做到：
+单测用**标准库 unittest**（不引入 pytest 等新依赖），放在 `tests/` 下：
+
+```bash
+.venv/bin/python -m unittest discover -s tests -v
+```
+
+`tests/test_group_verify.py` 用合成包名把 `src/plugins/group_verify` 目录挂进
+`sys.path`，直接加载 `verify_core` / `service` / `rate_limit` / `namelist`
+——**不要** import `src.plugins.group_verify` 本身（它的 `__init__.py` 会注册 NoneBot
+matcher，需要先 `nonebot.init()`）。
+
+改动行为后至少做到：
 
 1. `uv run pyright`（或 `.venv/bin/pyright`）零错误；
-2. 用真实命令走一遍关键路径：精确匹配、AI 回退、`ls`、`help`、群组过滤（若改了配置）；
-3. 资源名与关键词键保持一致，保证查表行为可预期。
+2. `.venv/bin/python -m unittest discover -s tests -v` 全绿；
+3. 用真实命令走一遍关键路径：精确匹配、AI 回退、`ls`、`help`、群组过滤（若改了配置）；
+   改了入群验证则按下面的「dry_run 自测」走一遍；
+4. 资源名与关键词键保持一致，保证查表行为可预期。
 
 VM 上有项目自身的 venv 和真实配置，可直接驱动插件真实 handler 做端到端验证（`nonebot.init()` + 加载 alconna + 直接调用 handler 并替换 `safe_finish`/`safe_send` 收集输出），比在本地造数据更接近真实。
+
+### 入群验证的 dry_run 自测
+
+```bash
+# 1) 临时在 .env.secret 打开：GROUP_VERIFY_ENABLED=true + DRY_RUN=true + 群白名单填测试群
+# 2) 重启机器人（只重启机器人，不碰 NapCat，不会触发扫码）
+bash start-bot.sh
+# 3) 用无人小号向该群发入群申请，留言写「答案：<真实证明码>」
+#    日志应出现「入群申请 | … 动作=approve …」+「[dry-run] 将执行 set_group_add_request」，
+#    且群里不会真的多出这个人。
+# 4) 反例：错证明码 / 错 QQ / 乱留言 → 动作=reject + 对应 reason；
+#    站点不可用（把 PROOF_URL_TEMPLATE 指向本地 5xx/超时端点）→ 动作=manual + 一条 WARN「待人工审核」
+# 5) 观察满意后再把 GROUP_VERIFY_DRY_RUN=false
+```
+
+注意 dry_run 也要走完整抓取与校验，唯一区别是不调用 `set_group_add_request`。
 
 ## 提交规范
 
@@ -130,6 +195,15 @@ VM 上有项目自身的 venv 和真实配置，可直接驱动插件真实 hand
 
 ## 改动前必读的坑
 
+- **`FriendRequestEvent` 没有 `sub_type` 字段**：`on_request` 的规则会对**所有** request 事件求值，
+  规则里直接写 `event.sub_type` 会在好友申请时抛 `AttributeError` —— 一律用
+  `getattr(event, "sub_type", "")`（group_verify 已踩过）。
+- **qq.ustc.life 对无效/过期证明码返回 HTTP 200 + 首页模板，不是 404**：判「证明码无效」
+  只能靠页面里三个字段（证明码/学号/QQ 号）是否齐全，不能靠状态码。
+- **站点允许申请人「选择展示几位学号」**：页面可能只有 `PB2506****` 这类掩码值，
+  完整正则必然失败；掩码要改走名单前缀核验，别把它当成「格式错误」直接拒。
+- **该站 FAQ 要求任意两次请求间隔 ≥1 秒**：并发申请必须走全局串行队列
+  （`IntervalLimiter`），不能只在单个请求里 sleep。
 - **变更链路**：本地 commit → 推到 GitHub → VM 上 `git pull --ff-only` → **重启 bot**（改 Python 必须重启才生效）。不要用 `ssh_upload` 直接覆盖 VM 上的文件，那会让 VM 与 git 记录分叉，后续 `pull` 冲突。
 - **VM 重启方式**：`bash start-bot.sh`。它只 `pkill -f 'uv run bot.py'`，不碰 NapCat，因此不会触发重新扫码。启动后看 `bot_output.log` 确认插件加载与 `OneBot V11 | Bot <QQ> connected`。
 - **别在同一条 SSH 命令里写出 `uv run bot.py` 这个字面量**（例如拿它当 `grep` / `ps` 的匹配模式）再去调 `start-bot.sh`：那条命令自己的命令行也含这个字符串，脚本里的 `pkill -f` 会连你的会话一起杀掉。用 `grep "bot[.]py"` 这类写法规避。
@@ -137,7 +211,8 @@ VM 上有项目自身的 venv 和真实配置，可直接驱动插件真实 hand
 - **禁用 ≠ 删除**：`enabled: false` 只是不可见，资源仍在仓库里（如 `factor/`、`Origin/`）。文档与提示语里不要写死彩蛋名，用 `build_help_examples()` 之类从可见集合生成。
 - **本地没有 `keywords.json`**：它是 gitignore 的本地配置，只在 VM 上。改彩蛋相关行为前，先到 VM 读真实配置，否则会基于错误的前提改动（本地直接跑 `load_entities()` 会抛 `FileNotFoundError`）。
 - **切图页码映射**：硬编码在 `scripts/slice_dawu2.py`。题库更新后必须**逐页**核对实验标题与页码，不能想当然——两次更新都是「某实验由单页变跨页」引起的整体偏移：v1.3「双臂电桥」单页变跨页（16-17），v2.0「双光栅实验」单页变跨页（27-28），其后所有实验页码 +1。核对方法：`pdftotext -f N -l N -layout` 逐页取标题，与 TOC 对照（印刷页 = 物理页 − 5）。
-- **`二级大雾题库/`**：当前切片用 **`二级大雾题库v2.0.pdf`**（2026-10-22 版，42 页，正文 6–41），LaTeX 源码（`main.tex` 等）不在仓库中；该目录整体被 gitignore。重新切片需先自备 PDF，并把脚本顶部的 `PDF` 常量指向新文件名。
+- **`二级大雾题库/`**：当前切片用 **`二级大雾题库v2.3.pdf`**（2026-11-03 版，42 页，正文 6–41；文档封面标注的是 Version 2.2，与文件名不一致），LaTeX 源码（`main.tex` 等）不在仓库中；该目录整体被 gitignore。重新切片需先自备 PDF，并把脚本顶部的 `PDF` 常量指向新文件名。
+- **题库小版本更新常常不改页码**：v2.1（改答案）、v2.3（补图/补题/改公式）都保持 42 页且目录不变，只需按页重切受影响的图，`EXPERIMENTS` 不用动。判定"哪些页真的改了"的可靠方法：先 `pdftotext` 去空白后逐页比对（能过滤掉整篇重排版带来的行折行差异），再对剩余页做字符级 diff。
 - **切图在本地做，不在 VM 上做**：VM 没有 poppler（`pdftoppm`）也没有 PIL，磁盘长期 90%+；本地切好后只提交 `src/asserts/dawu2/*.jpg`。
 
 ## 许可证

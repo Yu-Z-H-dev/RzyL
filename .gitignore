@@ -21,6 +21,16 @@ wheels/
 # 彩蛋配置文件（本地配置，不同步）
 src/asserts/easter_egg/keywords.json
 src/asserts/easter_egg/prompt_chat.md
+src/asserts/easter_egg/prompt_chat.md.save
+src/asserts/easter_egg/prompt_chat（副本）.md
 
 # 二级大雾题库源码与 PDF（切片原料，不入库；仅切片产物 src/asserts/dawu2/*.jpg 入库）
 二级大雾题库/
+
+# VM 运行时数据与日志（由 start-*.sh 生成，不入库）
+bot_output.log
+.log-rotate/
+napcat-data/
+qq-data/
+napcat-home/
+napcat-config-rw/

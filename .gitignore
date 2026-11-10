@@ -29,6 +29,7 @@ src/asserts/easter_egg/prompt_chat（副本）.md
 
 # VM 运行时数据与日志（由 start-*.sh 生成，不入库）
 bot_output.log
+official-bot.log
 .log-rotate/
 napcat-data/
 qq-data/

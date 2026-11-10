@@ -39,8 +39,31 @@ def _parse_groups(raw) -> list[int]:
     return []
 
 
+def _parse_openids(raw) -> list[str]:
+    """解析官方机器人的 group_openid 白名单（字符串，不能按数字过滤）。"""
+    if raw is None:
+        return []
+    parsed = raw
+    if isinstance(raw, str):
+        text = raw.strip()
+        if not text:
+            return []
+        try:
+            parsed = json.loads(text)
+        except ValueError:
+            parsed = text
+    if isinstance(parsed, (list, tuple)):
+        return [str(x).strip() for x in parsed if str(x).strip()]
+    return [item.strip() for item in str(parsed).split(",") if item.strip()]
+
+
 # 允许使用本插件的群聊列表，留空表示所有群聊都可以使用
 ALLOWED_GROUPS = _parse_groups(getattr(config, 'dawu_allowed_groups', None))
+
+# 官方机器人（QQ 开放平台）的群 group_openid 白名单，留空表示所有群都放行。
+# 注意：openid 是按机器人加密的，同一个群在不同机器人下值不同，需从日志收集。
+QQ_ALLOWED_GROUPS = _parse_openids(getattr(config, 'dawu_qq_allowed_groups', None))
+
 
 def get_image_path(keyword: str) -> Path:
     return Path.cwd() / "src" / "asserts" / "dawu" / f"{keyword}.jpg"

@@ -31,12 +31,12 @@ RzyL/
     │       └── Dory.jpg ustc.jpg       # 顶层单照片个体
     ├── utils/                  # 跨插件公共代码
     │   ├── safe_send.py        #   safe_send / safe_finish：发送失败不抛出、不中断流程
+    │   ├── adapter_compat.py   #   跨适配器：图片段 / 消息组装 / 剥 <@openid>
     │   └── ai_error.py         #   format_ai_error：错误码 → 可区分原因的中文提示
     └── plugins/
         ├── dawu/               # 大雾1
-        ├── dawu2/              # 大雾2（与 dawu 同构，两个目录的文件逐字节相同）
+        ├── dawu2/              # 大雾2（与 dawu 同构，仅命令名 / 配置键 / 资源目录不同）
         ├── easter_egg/         # 彩蛋
-        ├── nbnhhsh/            # 「解释」网络用语（拼音缩写）查询
         └── echo/               # 示例插件，代码全部被注释，实际未启用
 ```
 
@@ -67,7 +67,6 @@ uv run pyright       # 静态类型检查（pyrightconfig.json 指向 .venv）
 | `彩蛋 <名称>` | 彩蛋查询，精确 / AI 模糊匹配；均未命中时作为对话机器人回复 |
 | `彩蛋 ls` | 按类列出所有可见彩蛋 |
 | `彩蛋 help` | 彩蛋帮助信息 |
-| `解释 <缩写>` | 网络用语（拼音缩写）查询，数据来自 lab.magiconch.com 的 nbnhhsh 接口；仅 `JIESHI_ALLOWED_GROUPS` 白名单群响应，私聊不受限 |
 
 ## 核心机制
 
@@ -75,6 +74,7 @@ uv run pyright       # 静态类型检查（pyrightconfig.json 指向 .venv）
 
 - **注册**：`on_alconna(Alconna("大雾1", Args["name", str]), rule=Rule(check_group), priority=0, block=True)`。
 - **群组过滤**：`config.py` 读 `dawu_allowed_groups` / `dawu2_allowed_groups`（两者独立），留空放行全部群。`_parse_groups` 兼容 str / int / list——NoneBot 加载自定义配置时会先 `json.loads`，单个群号会变成 int、JSON 数组会变成 list。
+- **官方机器人群过滤**：QQ 官方事件没有数字群号，只有 `group_openid`（十六进制字符串，且按机器人加密，同一群在不同机器人下不同）。`check_group` 对 QQ 事件比对 `dawu_qq_allowed_groups` / `dawu2_qq_allowed_groups`，解析用 `_parse_openids`（**不能**沿用 `_parse_groups`，它按 `isdigit()` 过滤会把 openid 全丢掉）。
 - **精确匹配**：`find_keywords`（定义在 `__init__.py`，不在 `keywords.py`）对每个别名做**子串**匹配（`alias in text`），因此一次输入可命中多个键。`keywords.py` 只负责顶层 `json.loads`。
 - **缺失图片**：命中键但 `{键}.jpg` 不存在时，汇总提示缺失的图片文件名。
 - **AI 回退**：精确未命中 → `ai_match(text, KEYWORDS)`，调用 OpenAI 兼容 `/chat/completions`。
@@ -109,7 +109,8 @@ uv run pyright       # 静态类型检查（pyrightconfig.json 指向 .venv）
 
 ## 配置与安全
 
-- 复制 `.env.secret.temple` → `.env.secret`，填入 `BASE_URL` / `API_KEY` / `MODEL_CHAT` / `MODEL_THINK` / `MODEL_LITE`，以及可选的 `AI_TIMEOUT` / `AI_CONCURRENCY` / `DAWU_ALLOWED_GROUPS` / `DAWU2_ALLOWED_GROUPS` / `JIESHI_ALLOWED_GROUPS`。
+- 复制 `.env.secret.temple` → `.env.secret`，填入 `BASE_URL` / `API_KEY` / `MODEL_CHAT` / `MODEL_THINK` / `MODEL_LITE`，以及可选的 `AI_TIMEOUT` / `AI_CONCURRENCY` / `DAWU_ALLOWED_GROUPS` / `DAWU2_ALLOWED_GROUPS`。
+- **QQ 官方机器人**：`QQ_BOTS` 是 JSON 数组，元素为 `{id, secret, intent, use_websocket}`；`intent` 只要 `c2c_group_at_messages` 与 `group_members`。另有 `QQ_IS_SANDBOX`、`DAWU_QQ_ALLOWED_GROUPS`、`DAWU2_QQ_ALLOWED_GROUPS`。
 - `.env`、`.env.secret`、`src/asserts/easter_egg/keywords.json`、`src/asserts/easter_egg/prompt_chat.md` 均被 `.gitignore` 忽略，永不提交。分享日志时同样注意 API 响应中的敏感内容。
 
 ## 代码风格与命名
@@ -142,6 +143,13 @@ VM 上有项目自身的 venv 和真实配置，可直接驱动插件真实 hand
 - **`二级大雾题库/`**：当前切片用 **`二级大雾题库v2.3.pdf`**（2026-11-03 版，42 页，正文 6–41；该文件封面标注的是 Version 2.2，与文件名不一致），LaTeX 源码（`main.tex` 等）不在仓库中；该目录整体被 gitignore。重新切片需先自备 PDF，并把脚本顶部的 `PDF` 常量指向新文件名。
 - **题库小版本更新常常不改页码**：v2.1（改答案）、v2.3（补图/补题/改公式）都保持 42 页且目录不变，只需重切受影响的图，`EXPERIMENTS` 不用动。判断「哪些页真的变了」的可靠办法：先 `pdftotext` 去空白后逐页比对（可过滤掉整篇重排版带来的折行差异），再对剩余页做字符级 diff。
 - **切图在本地做，不在 VM 上做**：VM 没有 poppler（`pdftoppm`）也没有 PIL，磁盘长期 90%+；本地切好后只提交 `src/asserts/dawu2/*.jpg`。
+
+- **官方适配器必须 alconna ≥ 0.62.1**：0.60.4 的 `uniseg/adapters/qq/exporter.py` 在 `get_message_id` 里写死了事件白名单，不认 `GROUP_MESSAGE_CREATE`（全量消息模式），所有 matcher 的 rule 检查都会抛 `AssertionError`，表现为「消息收到了但一条都不回」。
+- **官方网关只有 `/gateway/bot` 可用**：`GET https://api.sgroup.qq.com/websocket` 已废弃（426 Upgrade Required），adapter-qq 1.7.3 用的是 `/gateway/bot`，更老的版本连不上。
+- **官方一条消息只能带一个媒体**：adapter 的 `_extract_qq_media` 取 `image[-1]`，多图会被静默丢弃。所以 `adapter_compat.compose_image_reply` 在 QQ 下只发第一张，其余列成「另有 N 个匹配」。
+- **官方被动回复 5 分钟 / 最多 5 条**：回复要带事件 `msg_id` + 递增 `msg_seq`，超时报 `40034128`。单次请求的发送条数要控制在 2 条内（AI 回退时「正在尝试AI匹配…」+ 结果）。
+- **群里默认要 @ 才收得到**，除非群主在「添加机器人 → 设置权限」里打开「接收全量消息」。打开后事件变成 `GROUP_MESSAGE_CREATE`，`content` 里的 @ 会被替换成 `<@member_openid>` / `<@all>`，由 `bot.py` 的 `event_preprocessor` 调 `strip_qq_mentions` 统一剥掉。
+- **QQ 事件没有 `user_id` 字段**：只有 `get_user_id()`；`group_id` 在 QQ 下是 `group_openid` 字符串，`int(group_id)` 会 `ValueError`，白名单逻辑必须按适配器分支。
 
 ## 许可证
 

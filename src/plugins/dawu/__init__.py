@@ -1,13 +1,14 @@
 import logging
 import time
 from collections import defaultdict
+from pathlib import Path
 
 from nonebot import require
-from nonebot.adapters.onebot.v11 import GroupMessageEvent, MessageEvent, MessageSegment, Message
+from nonebot.adapters import Event
 from nonebot.rule import Rule
 
 from .ai_match import ai_match
-from .config import ALLOWED_GROUPS, KEYWORDS, get_image_path
+from .config import ALLOWED_GROUPS, KEYWORDS, QQ_ALLOWED_GROUPS, get_image_path
 
 logger = logging.getLogger(__name__)
 
@@ -15,6 +16,7 @@ require("nonebot_plugin_alconna")
 require("src.plugins.easter_egg")
 
 from src.plugins.easter_egg import try_load_random_text
+from src.utils.adapter_compat import compose_image_reply, is_qq_event
 from src.utils.ai_error import format_ai_error
 from src.utils.safe_send import safe_finish, safe_send
 
@@ -22,9 +24,6 @@ from nonebot_plugin_alconna import (
     Alconna,
     Args,
     Match,
-    Option,
-    Query,
-    Subcommand,
     on_alconna,
 )
 
@@ -32,7 +31,7 @@ RATE_LIMIT = defaultdict(list)
 MAX_REQUESTS_PER_MINUTE = 10
 
 
-def check_rate_limit(user_id: int) -> bool:
+def check_rate_limit(user_id: str) -> bool:
     now = time.time()
     user_requests = RATE_LIMIT[user_id]
     user_requests = [t for t in user_requests if now - t < 60]
@@ -48,7 +47,14 @@ def validate_input(text: str) -> bool:
     return True
 
 
-def check_group(event: MessageEvent) -> bool:
+def check_group(event: Event) -> bool:
+    # QQ 官方机器人的群标识是 group_openid（字符串），与 OneBot 的数字群号是两套体系
+    if is_qq_event(event):
+        group_openid = getattr(event, "group_openid", None)
+        if group_openid is None:  # C2C 私聊
+            return True
+        return not QQ_ALLOWED_GROUPS or group_openid in QQ_ALLOWED_GROUPS
+
     group_id = getattr(event, "group_id", None)
     if group_id is None:
         return True
@@ -60,7 +66,6 @@ def check_group(event: MessageEvent) -> bool:
 dawu1 = on_alconna(
     Alconna("大雾1", Args["name", str]),
     rule=Rule(check_group),
-    # rule=to_me(),
     priority=0,
     block=True,
 )
@@ -76,39 +81,51 @@ def find_keywords(text: str) -> list[str]:
     return found_keywords
 
 
-
-
-async def send_keyword_images(keywords: list[str], prefix: str = ""):
-    messages = []
-    missing_keywords = []
+async def send_keyword_images(
+    event: Event,
+    keywords: list[str],
+    prefix: str = "",
+):
+    items: list[tuple[str, Path]] = []
+    missing_keywords: list[str] = []
     for keyword in keywords:
-        if keyword in KEYWORDS:
-            image_path = get_image_path(keyword)
-            if image_path.exists():
-                first_alias = KEYWORDS[keyword][0] if KEYWORDS[keyword] else keyword
-                messages.append(f"{prefix}{first_alias}:")
-                messages.append(MessageSegment.image(image_path))
-            else:
-                missing_keywords.append(keyword)
+        if keyword not in KEYWORDS:
+            continue
+        image_path = get_image_path(keyword)
+        if image_path.exists():
+            first_alias = KEYWORDS[keyword][0] if KEYWORDS[keyword] else keyword
+            items.append((first_alias, image_path))
+        else:
+            missing_keywords.append(keyword)
 
-    if messages:
-        if missing_keywords:
-            messages.append(
-                f"{prefix}: {', '.join(keywords)}，但部分图片文件不存在: {', '.join(missing_keywords)}"
-            )
-        if random_text := try_load_random_text():
-            messages.append(random_text)
-        await safe_finish(dawu1, Message(messages))
-    else:
-        await safe_finish(dawu1, f"{prefix}: {', '.join(keywords)}，但所有图片文件都不存在")
+    if not items:
+        await safe_finish(
+            dawu1,
+            f"{prefix}: {', '.join(keywords)}，但所有图片文件都不存在",
+        )
+        return
+
+    footer = ""
+    if missing_keywords:
+        footer += f"\n部分图片文件不存在: {', '.join(missing_keywords)}"
+    if random_text := try_load_random_text():
+        footer += f"\n{random_text}"
+
+    message = compose_image_reply(
+        event,
+        images=items,
+        header=prefix,
+        footer=footer,
+    )
+    await safe_finish(dawu1, message)
 
 
 @dawu1.handle()
 async def _(
-    event: MessageEvent,
+    event: Event,
     name: Match[str]
 ):
-    logger.info(f"收到请求: 群{getattr(event, 'group_id', '私聊')}, 用户{event.user_id}, 内容{name.result}")
+    logger.info(f"收到请求: 群{getattr(event, 'group_id', getattr(event, 'group_openid', '私聊'))}, 用户{event.get_user_id()}, 内容{name.result}")
 
     if not name.available:
         return
@@ -117,7 +134,7 @@ async def _(
         await safe_finish(dawu1, "输入无效，请提供有效的实验名称（1-100个字符）")
         return
 
-    if not check_rate_limit(event.user_id):
+    if not check_rate_limit(event.get_user_id()):
         await safe_finish(dawu1, "请求过于频繁，请稍后再试（每分钟最多10次请求）")
         return
 
@@ -134,7 +151,7 @@ async def _(
     else:
         found_keywords = find_keywords(name.result)
         if found_keywords:
-            await send_keyword_images(found_keywords)
+            await send_keyword_images(event, found_keywords)
         else:
             await safe_send(dawu1,
                 f"正在尝试AI匹配...",
@@ -146,7 +163,7 @@ async def _(
                 # 失败原因可区分：config / timeout / network / http_<状态码> / parse / unknown
                 await safe_finish(dawu1, format_ai_error(error), reply_message=True)
             elif ai_keywords:
-                await send_keyword_images(ai_keywords, "AI匹配到： ")
+                await send_keyword_images(event, ai_keywords, "AI匹配到： ")
             else:
                 await safe_finish(dawu1,
                     f"AI也没有找到匹配的关键词，使用'大雾1 ls'查看关键词列表",

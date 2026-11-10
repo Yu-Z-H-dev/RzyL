@@ -8,20 +8,48 @@
 鉴于此前的实现把 send/finish 直接写在命令处理流程里，一条 "正在思考..."
 发送失败会连带中断后续 AI 匹配与最终回复。本模块提供 safe_send /
 safe_finish，失败时记录 warning 日志并返回 False，交由调用方决定后续逻辑。
+
+适配器无关：OneBot v11 与 QQ 官方适配器的 ActionFailed / NetworkError
+都归类为「可吞掉的发送失败」。
 """
 
 import logging
 from typing import Any
 
-from nonebot.adapters.onebot.v11.exception import ActionFailed, NetworkError
 from nonebot.exception import FinishedException, StopPropagation
 
 logger = logging.getLogger(__name__)
 
 
+def _collect_send_errors() -> tuple[type[BaseException], ...]:
+    errors: list[type[BaseException]] = []
+    try:
+        from nonebot.adapters.onebot.v11.exception import (
+            ActionFailed as V11ActionFailed,
+        )
+        from nonebot.adapters.onebot.v11.exception import (
+            NetworkError as V11NetworkError,
+        )
+
+        errors.extend([V11ActionFailed, V11NetworkError])
+    except Exception:  # noqa: BLE001 - 未安装该适配器时忽略
+        pass
+    try:
+        from nonebot.adapters.qq.exception import ActionFailed as QQActionFailed
+        from nonebot.adapters.qq.exception import NetworkError as QQNetworkError
+
+        errors.extend([QQActionFailed, QQNetworkError])
+    except Exception:  # noqa: BLE001
+        pass
+    return tuple(errors)
+
+
+SEND_ERRORS = _collect_send_errors()
+
+
 def _log_send_failure(exc: BaseException) -> None:
     """把发送失败原因压缩成一条 warning 日志。"""
-    if isinstance(exc, ActionFailed):
+    if SEND_ERRORS and isinstance(exc, SEND_ERRORS):
         info = getattr(exc, "info", None) or {}
         retcode = info.get("retcode", "?")
         wording = str(info.get("message") or info.get("wording") or "").strip().replace("\n", " ")
@@ -38,9 +66,6 @@ async def safe_send(matcher: Any, message: Any, **kwargs: Any) -> bool:
     """
     try:
         await matcher.send(message, **kwargs)
-    except (ActionFailed, NetworkError) as exc:
-        _log_send_failure(exc)
-        return False
     except (FinishedException, StopPropagation):
         raise
     except Exception as exc:  # noqa: BLE001 - 兜底，发送失败不应打崩处理流程
@@ -57,12 +82,9 @@ async def safe_finish(matcher: Any, message: Any = None, **kwargs: Any) -> bool:
     """
     try:
         await matcher.finish(message, **kwargs)
-    except (ActionFailed, NetworkError) as exc:
-        _log_send_failure(exc)
-        return False
     except (FinishedException, StopPropagation):
         return True
-    except Exception as exc:  # noqa: BLE001 - 兜底，发送失败不应打崩处理流程
+    except Exception as exc:  # noqa: BLE001 - 兜底
         _log_send_failure(exc)
         return False
     return True

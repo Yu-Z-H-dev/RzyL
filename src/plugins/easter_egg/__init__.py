@@ -6,7 +6,7 @@ from pathlib import Path
 
 from nonebot import require
 from nonebot.plugin import PluginMetadata
-from nonebot.adapters.onebot.v11 import Message, MessageEvent, MessageSegment
+from nonebot.adapters import Event
 
 from .ai_match import ai_chat, ai_match
 from .keywords import (
@@ -19,6 +19,7 @@ from .keywords import (
     compound_visible,
 )
 from .random_text import load_random_text as try_load_random_text
+from src.utils.adapter_compat import compose_image_reply
 from src.utils.ai_error import format_ai_error
 from src.utils.safe_send import safe_finish, safe_send
 
@@ -33,7 +34,7 @@ __plugin_meta__ = PluginMetadata(
     description="图片彩蛋查询（类 / 个体 / 复合体）与随机一言",
     usage="发送 彩蛋 <名称> 查询图片；发送 彩蛋 ls 查看所有可用彩蛋；发送 彩蛋 help 查看帮助",
     type="application",
-    supported_adapters={"~onebot.v11"},
+    supported_adapters={"~onebot.v11", "~qq"},
 )
 
 EASTER_EGG_IMAGE_DIR = Path(__file__).parent.parent.parent / "asserts" / "easter_egg"
@@ -118,11 +119,11 @@ def build_ai_keywords(entities: dict[str, Entity], compounds: dict[str, Compound
 
 
 # AI 路径（模糊匹配 + 对话回退）会消耗 API 额度，按用户限流，与 dawu 保持一致
-RATE_LIMIT: defaultdict[int, list[float]] = defaultdict(list)
+RATE_LIMIT: defaultdict[str, list[float]] = defaultdict(list)
 MAX_REQUESTS_PER_MINUTE = 10
 
 
-def check_rate_limit(user_id: int) -> bool:
+def check_rate_limit(user_id: str) -> bool:
     """检查并记录请求：裁剪 60 秒外的记录，未超限则记入当前时间戳并放行。"""
     now = time.time()
     user_requests = [t for t in RATE_LIMIT[user_id] if now - t < 60]
@@ -134,39 +135,62 @@ def check_rate_limit(user_id: int) -> bool:
     return True
 
 
-async def _append_entity_messages(entity: Entity, messages: list) -> None:
-    """解析单个个体的图片并追加到消息列表（缺失则追加提示）。"""
+ImageItem = tuple[str, Path | None]
+
+
+async def _collect_entity_items(entity: Entity, items: list[ImageItem]) -> None:
+    """解析单个个体的图片并记入条目列表（缺失时 path 为 None）。"""
     path = await _resolve_image_or_none(entity)
-    if path:
-        messages.append(f"{entity.aliases[0]}:")
-        messages.append(MessageSegment.image(path))
-    else:
-        messages.append(f"{entity.aliases[0]}: 图片文件不存在")
+    items.append((entity.aliases[0], path))
 
 
-async def send_ai_matched_images(ai_keys: list[str], entities: dict[str, Entity], compounds: dict[str, Compound]) -> None:
+def _build_reply(
+    event: Event,
+    items: list[ImageItem],
+    header: str = "",
+    tail: str = "",
+):
+    """把条目列表变成一条可发送的消息；全部图片缺失时返回 None。"""
+    images = [(label, path) for label, path in items if path is not None]
+    if not images:
+        return None
+
+    missing = [label for label, path in items if path is None]
+    footer = ""
+    if missing:
+        footer += "\n图片文件不存在: " + "、".join(missing)
+    if tail:
+        footer += f"\n{tail}"
+
+    return compose_image_reply(event, images, header=header, footer=footer)
+
+
+async def send_ai_matched_images(
+    ai_keys: list[str],
+    entities: dict[str, Entity],
+    compounds: dict[str, Compound],
+    event: Event,
+) -> None:
     """根据 AI 返回的 key 列表解析并发出图片（个体或复合体），无可用图片时给出提示。"""
-    image_messages: list = []
+    items: list[ImageItem] = []
     seen: set[str] = set()
     for key in ai_keys:
         if key in seen:
             continue
         seen.add(key)
         if key in entities:
-            await _append_entity_messages(entities[key], image_messages)
+            await _collect_entity_items(entities[key], items)
         elif key in compounds and compound_visible(compounds[key], entities):
             for target_key in compounds[key].targets:
                 if target_key in entities:
-                    await _append_entity_messages(entities[target_key], image_messages)
+                    await _collect_entity_items(entities[target_key], items)
 
-    if not image_messages:
+    message = _build_reply(event, items, "AI 匹配到：", try_load_random_text() or "")
+    if message is None:
         await safe_finish(caidan, "AI 匹配到关键词但未找到可用图片", reply_message=True)
         return
 
-    messages: list = ["AI 匹配到：", *image_messages]
-    if random_text := try_load_random_text():
-        messages.append(random_text)
-    await safe_finish(caidan, Message(messages))
+    await safe_finish(caidan, message)
 
 
 caidan = on_alconna(
@@ -181,8 +205,8 @@ async def _resolve_image_or_none(entity: Entity) -> Path | None:
 
 
 @caidan.handle()
-async def _(event: MessageEvent, name: Match[str]):
-    logger.info(f"收到彩蛋请求: 群{getattr(event, 'group_id', '私聊')}, 用户{event.user_id}, 内容{name.result}")
+async def _(event: Event, name: Match[str]):
+    logger.info(f"收到彩蛋请求: 群{getattr(event, 'group_id', getattr(event, 'group_openid', '私聊'))}, 用户{event.get_user_id()}, 内容{name.result}")
 
     entities = load_entities()
     compounds = load_compounds()
@@ -258,19 +282,24 @@ async def _(event: MessageEvent, name: Match[str]):
 
     # 精确匹配命中：直接出图
     if compound_matches or entity_matches:
-        messages: list = []
+        items: list[ImageItem] = []
         for _, targets in compound_matches:
             for target in targets:
-                await _append_entity_messages(target, messages)
+                await _collect_entity_items(target, items)
         for entity in entity_matches:
-            await _append_entity_messages(entity, messages)
-        if random_text := try_load_random_text():
-            messages.append(random_text)
-        await safe_finish(caidan, Message(messages))
+            await _collect_entity_items(entity, items)
+
+        message = _build_reply(event, items, "", try_load_random_text() or "")
+        if message is None:
+            missing = "、".join(label for label, path in items if path is None)
+            await safe_finish(caidan, f"图片文件不存在: {missing}" if missing else "暂无可用的彩蛋图片")
+            return
+
+        await safe_finish(caidan, message)
         return
 
     # 精确未命中：AI 模糊匹配（消耗 API 额度，按用户限流）
-    if not check_rate_limit(event.user_id):
+    if not check_rate_limit(event.get_user_id()):
         await safe_finish(caidan, "请求过于频繁，请稍后再试（每分钟最多10次请求）")
         return
 
@@ -286,7 +315,7 @@ async def _(event: MessageEvent, name: Match[str]):
 
     if ai_keys:
         # AI 命中彩蛋关键词：出图
-        await send_ai_matched_images(ai_keys, entities, compounds)
+        await send_ai_matched_images(ai_keys, entities, compounds, event)
         return
 
     # AI 也未匹配（视为用户在「彩蛋」后说了无关/无意义的话）：对话回退，引用该用户的发言
